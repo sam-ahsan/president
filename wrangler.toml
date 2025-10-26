@@ -1,0 +1,23 @@
+name = "president-card-game"
+compatibility_date = "2024-01-01"
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "president-db"
+database_id = "your-database-id-here"
+
+# KV Namespaces
+[[kv_namespaces]]
+binding = "LOBBY_KV"
+id = "your-lobby-kv-id-here"
+
+[[kv_namespaces]]
+binding = "PRESENCE_KV"
+id = "your-presence-kv-id-here"
+
+# Environment variables
+[vars]
+ENVIRONMENT = "development"
+JWT_SECRET = "your-jwt-secret-here"
+
