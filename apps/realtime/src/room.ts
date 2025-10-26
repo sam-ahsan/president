@@ -5,8 +5,11 @@ import {
   ClientMessage, 
   ServerMessage,
   validateClientMessage,
-  CardSchema 
+  CardSchema,
+  GameSettings,
+  GameSettingsSchema 
 } from '@president/shared';
+import { generateDeck, canPlayCards, hasPlayerWon, assignRoles, calculateEloChange } from './gameLogic';
 
 interface Env {
   DB: D1Database;
@@ -15,12 +18,25 @@ interface Env {
   JWT_SECRET: string;
 }
 
+interface ConnectionData {
+  playerId: string;
+  connectionId: string;
+}
+
 export class RoomActor {
   private state: DurableObjectState;
   private env: Env;
   private gameState: GameState;
   private connections: Map<string, WebSocket> = new Map();
+  private playerToConnection: Map<string, string> = new Map();
   private roomCode: string;
+  private gameSettings: GameSettings = {
+    allowJokers: false,
+    useTwoDecks: false,
+    maxPlayers: 8,
+    isPrivate: false
+  };
+  private playersPassedThisTrick: Set<string> = new Set();
 
   constructor(state: DurableObjectState, env: Env) {
     this.state = state;
@@ -153,6 +169,7 @@ export class RoomActor {
     const existingPlayer = this.gameState.players.find(p => p.id === playerId);
     if (existingPlayer) {
       existingPlayer.isConnected = true;
+      this.playerToConnection.set(playerId, connectionId);
     } else {
       // Add new player
       const newPlayer: Player = {
@@ -163,6 +180,7 @@ export class RoomActor {
         isReady: false
       };
       this.gameState.players.push(newPlayer);
+      this.playerToConnection.set(playerId, connectionId);
     }
 
     // Broadcast player joined
@@ -221,30 +239,110 @@ export class RoomActor {
 
   private async handlePlayCards(connectionId: string, message: ClientMessage): Promise<void> {
     if (message.type !== 'play_cards') return;
+    if (this.gameState.phase !== 'playing') {
+      this.sendToConnection(connectionId, {
+        type: 'error',
+        message: 'Game is not in playing phase'
+      });
+      return;
+    }
 
     const { playerId, cards } = message;
+    const player = this.gameState.players.find(p => p.id === playerId);
     
-    // TODO: Implement card validation and game logic
-    // For now, just broadcast the cards played
+    if (!player || this.gameState.players[this.gameState.turnIndex].id !== playerId) {
+      this.sendToConnection(connectionId, {
+        type: 'error',
+        message: 'Not your turn'
+      });
+      return;
+    }
+
+    // Validate cards
+    if (!this.validatePlay(player, cards)) {
+      this.sendToConnection(connectionId, {
+        type: 'error',
+        message: 'Invalid play'
+      });
+      return;
+    }
+
+    // Remove cards from player hand
+    cards.forEach(cardToPlay => {
+      const index = player.hand.findIndex(
+        c => c.rank === cardToPlay.rank && c.suit === cardToPlay.suit
+      );
+      if (index > -1) {
+        player.hand.splice(index, 1);
+      }
+    });
+
+    // Update pile
+    this.gameState.pile = {
+      cards,
+      rank: cards[0].rank,
+      count: cards.length
+    };
+
+    this.playersPassedThisTrick.clear();
+
+    // Broadcast cards played
     this.broadcast({
       type: 'cards_played',
       playerId,
       cards,
-      pileRank: cards[0]?.rank || '',
+      pileRank: cards[0].rank,
       pileCount: cards.length
     });
+
+    // Check if player won
+    if (hasPlayerWon(player)) {
+      await this.handlePlayerWon(player);
+      return;
+    }
+
+    // Move to next turn
+    this.nextTurn();
   }
 
   private async handlePassTurn(connectionId: string, message: ClientMessage): Promise<void> {
     if (message.type !== 'pass_turn') return;
+    if (this.gameState.phase !== 'playing') {
+      this.sendToConnection(connectionId, {
+        type: 'error',
+        message: 'Game is not in playing phase'
+      });
+      return;
+    }
 
     const { playerId } = message;
+    const player = this.gameState.players.find(p => p.id === playerId);
     
-    // TODO: Implement turn logic
+    if (!player || this.gameState.players[this.gameState.turnIndex].id !== playerId) {
+      this.sendToConnection(connectionId, {
+        type: 'error',
+        message: 'Not your turn'
+      });
+      return;
+    }
+
+    this.playersPassedThisTrick.add(playerId);
+
+    // Broadcast turn passed
     this.broadcast({
       type: 'turn_passed',
       playerId
     });
+
+    // Check if everyone passed
+    if (this.playersPassedThisTrick.size >= this.gameState.players.length) {
+      // Everyone passed, reset the trick
+      this.gameState.pile = null;
+      this.playersPassedThisTrick.clear();
+    } else {
+      // Move to next turn
+      this.nextTurn();
+    }
   }
 
   private async handleChatMessage(connectionId: string, message: ClientMessage): Promise<void> {
@@ -262,30 +360,58 @@ export class RoomActor {
   }
 
   private handlePlayerDisconnect(connectionId: string): void {
-    // Find player by connection and mark as disconnected
-    // This is a simplified implementation
-    this.broadcast({
-      type: 'system_message',
-      message: 'A player disconnected'
-    });
+    const playerId = Array.from(this.playerToConnection.entries()).find(
+      ([_, connId]) => connId === connectionId
+    )?.[0];
+
+    if (playerId) {
+      const player = this.gameState.players.find(p => p.id === playerId);
+      if (player) {
+        player.isConnected = false;
+        
+        this.broadcast({
+          type: 'system_message',
+          message: `${player.handle} disconnected`
+        });
+
+        this.broadcast({
+          type: 'room_state',
+          gameState: this.gameState,
+          players: this.gameState.players
+        });
+      }
+    }
   }
 
   private allPlayersReady(): boolean {
-    return this.gameState.players.length >= 3 && 
-           this.gameState.players.every(p => p.isReady);
+    const connectedPlayers = this.gameState.players.filter(p => p.isConnected);
+    return connectedPlayers.length >= 3 && 
+           connectedPlayers.every(p => p.isReady);
   }
 
   private async startGame(): Promise<void> {
     this.gameState.phase = 'playing';
     
-    // TODO: Implement game start logic
-    // - Deal cards
-    // - Set initial turn
-    // - Initialize game state
-    
+    // Generate and deal cards
+    const numPlayers = this.gameState.players.length;
+    const deck = this.gameSettings.useTwoDecks || numPlayers > 6
+      ? [...generateDeck(), ...generateDeck()]
+      : generateDeck();
+
+    const dealtData = this.dealCards(deck, this.gameState.players);
+    this.gameState.players = dealtData.players;
+    this.gameState.deck = dealtData.deck;
+    this.gameState.turnIndex = 0;
+
     this.broadcast({
       type: 'system_message',
-      message: 'Game started!'
+      message: 'Game started! Good luck!'
+    });
+
+    this.broadcast({
+      type: 'turn_changed',
+      turnIndex: this.gameState.turnIndex,
+      playerId: this.gameState.players[this.gameState.turnIndex].id
     });
 
     this.broadcast({
@@ -295,10 +421,101 @@ export class RoomActor {
     });
   }
 
+  private dealCards(deck: Card[], players: Player[]): { players: Player[]; deck: Card[] } {
+    const shuffledDeck = [...deck];
+    const updatedPlayers = players.map(player => ({
+      ...player,
+      hand: []
+    }));
+
+    // Deal cards round-robin
+    let cardIndex = 0;
+    while (cardIndex < shuffledDeck.length && cardIndex < shuffledDeck.length) {
+      for (let playerIndex = 0; playerIndex < updatedPlayers.length && cardIndex < shuffledDeck.length; playerIndex++) {
+        updatedPlayers[playerIndex].hand.push(shuffledDeck[cardIndex]);
+        cardIndex++;
+      }
+    }
+
+    return {
+      players: updatedPlayers,
+      deck: shuffledDeck.slice(cardIndex)
+    };
+  }
+
+  private validatePlay(player: Player, cards: Card[]): boolean {
+    // Check if player has all the cards
+    for (const card of cards) {
+      const hasCard = player.hand.some(c => c.rank === card.rank && c.suit === card.suit);
+      if (!hasCard) return false;
+    }
+
+    // Check if all cards are same rank
+    if (!cards.every(c => c.rank === cards[0].rank)) return false;
+
+    // Check if play beats current pile
+    if (this.gameState.pile) {
+      return canPlayCards(cards, this.gameState.pile.cards);
+    }
+
+    return true;
+  }
+
+  private nextTurn(): void {
+    this.gameState.turnIndex = (this.gameState.turnIndex + 1) % this.gameState.players.length;
+    
+    this.broadcast({
+      type: 'turn_changed',
+      turnIndex: this.gameState.turnIndex,
+      playerId: this.gameState.players[this.gameState.turnIndex].id
+    });
+  }
+
+  private async handlePlayerWon(winner: Player): Promise<void> {
+    // Assign roles
+    const playersWithRoles = assignRoles(this.gameState.players);
+    this.gameState.players = playersWithRoles;
+
+    this.broadcast({
+      type: 'round_end',
+      winnerId: winner.id,
+      roles: Object.fromEntries(playersWithRoles.map(p => [p.id, p.role]))
+    });
+
+    // End game if everyone finished
+    const remainingPlayers = this.gameState.players.filter(p => p.hand.length > 0);
+    if (remainingPlayers.length <= 1) {
+      await this.endGame();
+    }
+  }
+
+  private async endGame(): Promise<void> {
+    this.gameState.phase = 'game_end';
+    const playersWithRoles = assignRoles(this.gameState.players);
+    this.gameState.players = playersWithRoles;
+
+    this.broadcast({
+      type: 'game_end',
+      finalRankings: playersWithRoles.map((p, idx) => ({
+        playerId: p.id,
+        handle: p.handle,
+        role: p.role || 'citizen',
+        rank: idx + 1
+      }))
+    });
+
+    // TODO: Calculate and store ELO changes
+    // TODO: Save match to database
+  }
+
   private sendToConnection(connectionId: string, message: ServerMessage): void {
     const connection = this.connections.get(connectionId);
     if (connection && connection.readyState === WebSocket.OPEN) {
-      connection.send(JSON.stringify(message));
+      try {
+        connection.send(JSON.stringify(message));
+      } catch (error) {
+        console.error('Error sending message:', error);
+      }
     }
   }
 
@@ -306,7 +523,11 @@ export class RoomActor {
     const messageStr = JSON.stringify(message);
     this.connections.forEach((connection) => {
       if (connection.readyState === WebSocket.OPEN) {
-        connection.send(messageStr);
+        try {
+          connection.send(messageStr);
+        } catch (error) {
+          console.error('Error broadcasting message:', error);
+        }
       }
     });
   }
@@ -315,4 +536,3 @@ export class RoomActor {
     return `conn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 }
-

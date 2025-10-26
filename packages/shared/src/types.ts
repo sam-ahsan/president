@@ -38,12 +38,23 @@ export const GameStateSchema = z.object({
 
 export type GameState = z.infer<typeof GameStateSchema>;
 
+// Game settings
+export const GameSettingsSchema = z.object({
+  allowJokers: z.boolean().default(false),
+  useTwoDecks: z.boolean().default(false),
+  maxPlayers: z.number().min(3).max(12).default(8),
+  isPrivate: z.boolean().default(false)
+});
+
+export type GameSettings = z.infer<typeof GameSettingsSchema>;
+
 // Room information
 export const RoomSchema = z.object({
   code: z.string(),
   hostId: z.string(),
   maxPlayers: z.number().default(8),
   isPrivate: z.boolean().default(false),
+  settings: GameSettingsSchema,
   createdAt: z.string(),
   gameState: GameStateSchema
 });

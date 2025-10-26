@@ -3,13 +3,8 @@
   "version": "1.0.0",
   "description": "A real-time multiplayer President card game built with Cloudflare Workers and React",
   "private": true,
-  "workspaces": [
-    "apps/*",
-    "packages/*",
-    "web"
-  ],
   "scripts": {
-    "dev": "concurrently \"pnpm --filter api dev\" \"pnpm --filter realtime dev\" \"pnpm --filter web dev\"",
+    "dev": "concurrently \"pnpm --filter @president/api dev\" \"pnpm --filter @president/realtime dev\" \"pnpm --filter web dev\"",
     "build": "pnpm --filter shared build && pnpm --filter api build && pnpm --filter realtime build && pnpm --filter web build",
     "deploy": "pnpm build && wrangler deploy",
     "deploy:api": "pnpm --filter api deploy",

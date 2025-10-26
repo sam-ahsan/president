@@ -1,7 +1,7 @@
 import { GameState, Player, Card } from '@president/shared';
 
 // Card ranks in order (2 is lowest, Ace is highest)
-const CARD_RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+export const CARD_RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
 // Generate a standard 52-card deck
 export function generateDeck(): Card[] {
@@ -51,7 +51,7 @@ export function dealCards(deck: Card[], players: Player[]): { deck: Card[]; play
   };
 }
 
-// Validate if cards can be played
+// Validate if cards can be played - President card game rules
 export function canPlayCards(cards: Card[], pileCards: Card[] | null): boolean {
   if (!cards || cards.length === 0) return false;
   
@@ -88,7 +88,7 @@ export function assignRoles(players: Player[]): Player[] {
   // Sort players by hand size (ascending - fewer cards = better rank)
   const sortedPlayers = [...players].sort((a, b) => a.hand.length - b.hand.length);
   
-  const roleMap = {
+  const roleMap: Record<number, 'president' | 'vice_president' | 'citizen' | 'vice_scum' | 'scum'> = {
     0: 'president',
     1: 'vice_president', 
     2: 'citizen',
@@ -98,7 +98,7 @@ export function assignRoles(players: Player[]): Player[] {
 
   return sortedPlayers.map((player, index) => ({
     ...player,
-    role: roleMap[index as keyof typeof roleMap] || 'citizen'
+    role: roleMap[index] || 'citizen'
   }));
 }
 
@@ -111,3 +111,80 @@ export function calculateEloChange(playerElo: number, opponentElo: number, won: 
   return Math.round(K * (actualScore - expectedScore));
 }
 
+// Check if cards can beat the current pile
+export function canBeatPile(cards: Card[], pileCards: Card[]): boolean {
+  if (!pileCards || pileCards.length === 0) return true;
+  
+  const rank = cards[0].rank;
+  const pileRank = pileCards[0].rank;
+  const pileCount = pileCards.length;
+
+  // Must play same count of cards
+  if (cards.length !== pileCount) return false;
+
+  // Must play higher rank
+  return getRankValue(rank) > getRankValue(pileRank);
+}
+
+// Sort hand by rank for display
+export function sortHand(hand: Card[]): Card[] {
+  return [...hand].sort((a, b) => {
+    const rankDiff = getRankValue(a.rank) - getRankValue(b.rank);
+    if (rankDiff !== 0) return rankDiff;
+    
+    // If ranks are equal, sort by suit
+    const suitOrder = ['hearts', 'diamonds', 'clubs', 'spades'];
+    return suitOrder.indexOf(a.suit) - suitOrder.indexOf(b.suit);
+  });
+}
+
+// Check if player has valid play given current pile
+export function getValidPlays(player: Player, pileCards: Card[] | null): Card[][] {
+  if (!pileCards || pileCards.length === 0) {
+    // Any card or set can be played
+    return player.hand.map(c => [c]);
+  }
+
+  const validPlays: Card[][] = [];
+  const pileRank = pileCards[0].rank;
+  const pileCount = pileCards.length;
+
+  // Group hand by rank
+  const byRank = new Map<string, Card[]>();
+  for (const card of player.hand) {
+    if (!byRank.has(card.rank)) {
+      byRank.set(card.rank, []);
+    }
+    byRank.get(card.rank)!.push(card);
+  }
+
+  // Find valid plays
+  for (const [rank, cards] of byRank.entries()) {
+    if (getRankValue(rank) <= getRankValue(pileRank)) continue;
+    if (cards.length < pileCount) continue;
+
+    // Get all combinations of the required count
+    const combinations = getCombinations(cards, pileCount);
+    validPlays.push(...combinations);
+  }
+
+  return validPlays;
+}
+
+// Get all combinations of specific size
+function getCombinations<T>(arr: T[], size: number): T[][] {
+  if (size > arr.length) return [];
+  if (size === 0) return [[]];
+  if (size === 1) return arr.map(x => [x]);
+
+  const result: T[][] = [];
+  for (let i = 0; i < arr.length; i++) {
+    const head = arr[i];
+    const tailCombos = getCombinations(arr.slice(i + 1), size - 1);
+    for (const combo of tailCombos) {
+      result.push([head, ...combo]);
+    }
+  }
+
+  return result;
+}

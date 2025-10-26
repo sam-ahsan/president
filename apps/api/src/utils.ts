@@ -32,6 +32,7 @@ export async function createGuestUser(db: D1Database, handle: string): Promise<{
 
 // Create a user session with JWT
 export async function createUserSession(userId: string, handle: string, isGuest: boolean): Promise<{ token: string }> {
+  const secret = process.env.JWT_SECRET || 'dev-secret-change-in-production';
   const payload = {
     userId,
     handle,
@@ -40,7 +41,7 @@ export async function createUserSession(userId: string, handle: string, isGuest:
     exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24 hours
   };
 
-  const token = jwt.sign(payload, process.env.JWT_SECRET || 'dev-secret');
+  const token = jwt.sign(payload, secret);
   
   return { token };
 }

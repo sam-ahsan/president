@@ -2,6 +2,20 @@
 
 A real-time multiplayer browser card game inspired by Balatro's clean design and smooth animations.
 
+## 🚀 Quick Start
+
+Want to get running immediately? See [GETTING_STARTED.md](./GETTING_STARTED.md) for complete setup instructions.
+
+**TL;DR:**
+```bash
+pnpm install
+cd packages/shared && pnpm build && cd ../..
+pnpm dev
+```
+Then open http://localhost:5173
+
+---
+
 ## 🎯 Project Goals
 
 - Real-time multiplayer gameplay for 3+ players using server-authoritative logic
