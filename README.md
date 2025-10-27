@@ -14,6 +14,8 @@ pnpm dev
 ```
 Then open http://localhost:5173
 
+**📦 Deployment**: Deployment info included in [GETTING_STARTED.md](./GETTING_STARTED.md)
+
 ---
 
 ## 🎯 Project Goals

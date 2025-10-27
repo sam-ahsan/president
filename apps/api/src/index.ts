@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { jwt } from 'hono/jwt';
+import jwtLib from 'jsonwebtoken';
 import { generateRoomCode, createGuestUser, createUserSession } from './utils';
 import { UserSessionSchema } from '@president/shared';
 
@@ -46,19 +47,49 @@ app.post('/api/auth/guest', async (c) => {
       return c.json({ error: 'Handle must be 20 characters or less' }, 400);
     }
 
-    const session = await createGuestUser(c.env.DB, trimmedHandle);
+    const userId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const secret = c.env.JWT_SECRET || 'dev-secret-change-in-production';
+    const isLocalDev = c.env.ENVIRONMENT === 'development';
     
-    return c.json({
-      token: session.token,
-      user: {
-        id: session.userId,
-        handle: trimmedHandle,
-        isGuest: true
-      }
-    });
+    // Try to use database first (production mode)
+    try {
+      const session = await createGuestUser(c.env.DB, trimmedHandle);
+      
+      return c.json({
+        token: session.token,
+        user: {
+          id: session.userId,
+          handle: trimmedHandle,
+          isGuest: true
+        }
+      });
+    } catch (dbError) {
+      // Fall back to in-memory auth for local development
+      console.log(`Database unavailable, using in-memory auth (dev mode: ${isLocalDev})`);
+      
+      const token = jwtLib.sign(
+        {
+          userId,
+          handle: trimmedHandle,
+          isGuest: true,
+          iat: Math.floor(Date.now() / 1000),
+          exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60)
+        },
+        secret
+      );
+      
+      return c.json({
+        token,
+        user: {
+          id: userId,
+          handle: trimmedHandle,
+          isGuest: true
+        }
+      });
+    }
   } catch (error) {
     console.error('Guest auth error:', error);
-    return c.json({ error: 'Failed to create guest session' }, 500);
+    return c.json({ error: 'Failed to create guest session', details: error.message }, 500);
   }
 });
 
