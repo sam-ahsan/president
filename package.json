@@ -17,7 +17,7 @@
     "deploy:realtime": "wrangler deploy --config wrangler.realtime.toml",
     "deploy": "pnpm run deploy:api && pnpm run deploy:realtime",
     "db:migrate": "wrangler d1 migrations apply president-db",
-    "db:migrate:local": "wrangler d1 execute president-db --local --file=./migrations/0001_initial_schema.sql",
+    "db:migrate:local": "wrangler d1 execute president-db --local --config wrangler.api.toml --file=./migrations/0001_initial_schema.sql",
     "clean:local": "echo 'Local dev uses in-memory database - no cleanup needed'",
     "lint": "eslint ."
   },

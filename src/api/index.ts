@@ -1,5 +1,5 @@
 import type { Env } from './env';
-import { createJWT, verifyJWT, getJWTSecret } from '../shared/auth';
+import { createJWT, verifyJWT, getJWTSecret, hashPassword, verifyPassword } from '../shared/auth';
 import { createSession } from '../shared/auth';
 
 export default {
@@ -68,14 +68,41 @@ export default {
 
 async function handleGuestAuth(request: Request, env: Env, corsHeaders: Record<string, string>): Promise<Response> {
   try {
-    const body = await request.json() as { username?: string };
-    const username = body.username || `Guest${Math.random().toString(36).substring(2, 9)}`;
+    // Generate a unique random guest username
+    let username: string;
+    let attempts = 0;
+    const maxAttempts = 10;
     
+    do {
+      // Generate a random guest name with a number (e.g., "Guest123")
+      const randomNum = Math.floor(Math.random() * 1000000);
+      username = `Guest${randomNum}`;
+      
+      // Check if username exists in database
+      const existing = await env.DB.prepare('SELECT id FROM users WHERE LOWER(username) = ?')
+        .bind(username.toLowerCase())
+        .first();
+      
+      if (!existing) {
+        break; // Username is unique
+      }
+      
+      attempts++;
+    } while (attempts < maxAttempts);
+    
+    // If we couldn't find a unique name after 10 attempts, add timestamp
+    if (attempts >= maxAttempts) {
+      username = `Guest${Date.now()}`;
+    }
+    
+    // For guest users, don't create DB record - use session ID as identifier
     const session = await createSession(undefined, username, true);
+    const guestUserId = `guest:${session.id}`; // Prefix to identify guest users
+    
     const jwt = await createJWT(
       { 
         sessionId: session.id, 
-        userId: undefined, 
+        userId: guestUserId, // Use prefixed session ID for guests
         username: session.username,
         isGuest: true 
       }, 
@@ -87,7 +114,7 @@ async function handleGuestAuth(request: Request, env: Env, corsHeaders: Record<s
       expiration: Math.floor(session.expiresAt / 1000)
     });
 
-    return new Response(JSON.stringify({ token: jwt, user: { username, isGuest: true } }), {
+    return new Response(JSON.stringify({ token: jwt, user: { id: guestUserId, username, isGuest: true } }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders }
     });
   } catch (error) {
@@ -102,9 +129,32 @@ async function handleRegister(request: Request, env: Env, corsHeaders: Record<st
   try {
     const body = await request.json() as { username: string; email: string; password: string };
     
-    // Check if username exists
-    const existing = await env.DB.prepare('SELECT id FROM users WHERE username = ?')
-      .bind(body.username)
+    // Validate username
+    if (!body.username || body.username.trim().length < 3) {
+      return new Response(JSON.stringify({ error: 'Username must be at least 3 characters' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+    
+    // Validate password
+    if (!body.password || body.password.length < 8) {
+      return new Response(JSON.stringify({ error: 'Password must be at least 8 characters' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+    
+    if (!/[A-Z]/.test(body.password) || !/[a-z]/.test(body.password) || !/[0-9]/.test(body.password)) {
+      return new Response(JSON.stringify({ error: 'Password must contain uppercase, lowercase, and a number' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+    
+    // Check if username exists (case insensitive)
+    const existing = await env.DB.prepare('SELECT id FROM users WHERE LOWER(username) = ?')
+      .bind(body.username.toLowerCase())
       .first();
     
     if (existing) {
@@ -114,11 +164,14 @@ async function handleRegister(request: Request, env: Env, corsHeaders: Record<st
       });
     }
 
+    // Hash password
+    const passwordHash = await hashPassword(body.password);
+
     // Create user
     const userId = crypto.randomUUID();
     await env.DB.prepare(
-      'INSERT INTO users (id, username, email, created_at) VALUES (?, ?, ?, ?)'
-    ).bind(userId, body.username, body.email, Date.now()).run();
+      'INSERT INTO users (id, username, email, password_hash, created_at) VALUES (?, ?, ?, ?, ?)'
+    ).bind(userId, body.username, body.email, passwordHash, Date.now()).run();
 
     const session = await createSession(userId, body.username, false);
     const jwt = await createJWT(
@@ -145,11 +198,21 @@ async function handleLogin(request: Request, env: Env, corsHeaders: Record<strin
   try {
     const body = await request.json() as { username: string; password: string };
     
+    // Find user by username (case insensitive)
     const user = await env.DB.prepare(
-      'SELECT id, username FROM users WHERE username = ?'
-    ).bind(body.username).first() as { id: string; username: string } | undefined;
+      'SELECT id, username, password_hash FROM users WHERE LOWER(username) = ?'
+    ).bind(body.username.toLowerCase()).first() as { id: string; username: string; password_hash: string | null } | undefined;
     
-    if (!user) {
+    if (!user || !user.password_hash) {
+      return new Response(JSON.stringify({ error: 'Invalid credentials' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+    
+    // Verify password
+    const isValid = await verifyPassword(body.password, user.password_hash);
+    if (!isValid) {
       return new Response(JSON.stringify({ error: 'Invalid credentials' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
@@ -188,12 +251,22 @@ async function handleCreateRoom(request: Request, env: Env, corsHeaders: Record<
     }
 
     const payload = await verifyJWT(token, getJWTSecret());
+    
+    if (!payload.userId && !payload.sessionId) {
+      return new Response(JSON.stringify({ error: 'Invalid session' }), { 
+        status: 401,
+        headers: corsHeaders
+      });
+    }
+    
     const body = await request.json() as { name: string; maxPlayers: number };
     
     const roomId = crypto.randomUUID();
+    const hostId = payload.userId || payload.sessionId;
+    
     await env.DB.prepare(
       'INSERT INTO rooms (id, name, host_id, max_players, current_players, status, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)'
-    ).bind(roomId, body.name, payload.userId || payload.sessionId, body.maxPlayers, 'waiting', Date.now()).run();
+    ).bind(roomId, body.name, hostId, body.maxPlayers, 'waiting', Date.now()).run();
 
     return new Response(JSON.stringify({ id: roomId, name: body.name, maxPlayers: body.maxPlayers }), {
       headers: { 'Content-Type': 'application/json', ...corsHeaders }

@@ -2,14 +2,14 @@ import { useEffect, useRef } from 'react';
 import { useGameStore } from '../store/gameStore';
 import type { GameState } from '../types';
 
-const API_URL = import.meta.env.VITE_REALTIME_URL || import.meta.env.VITE_API_URL || 'http://localhost:8787';
+const REALTIME_URL = import.meta.env.VITE_REALTIME_URL || 'http://localhost:8788';
 
 export function useWebSocket(roomId: string, token: string) {
   const wsRef = useRef<WebSocket | null>(null);
   const { setGameState, setWebSocket } = useGameStore();
 
   useEffect(() => {
-    const wsUrl = API_URL.replace(/^http/, 'ws');
+    const wsUrl = REALTIME_URL.replace(/^http/, 'ws');
     const ws = new WebSocket(`${wsUrl}/room/${roomId}?token=${token}`);
     
     ws.onopen = () => {

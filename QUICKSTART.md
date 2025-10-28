@@ -40,7 +40,13 @@ pnpm run dev:frontend     # Terminal 2 - React frontend
 
 ### Option 2: Wrangler Local (More production-like)
 ```bash
-npm install -g wrangler   # One-time setup
+# One-time setup: Install wrangler (if not already installed)
+npm install -g wrangler
+
+# One-time setup: Initialize database tables
+pnpm run db:migrate:local
+
+# Start the services (run in separate terminals)
 pnpm run dev:api          # Terminal 1 - Uses local D1 emulator
 pnpm run dev:realtime     # Terminal 2 - Real-time worker
 pnpm run dev:frontend     # Terminal 3 - React frontend
@@ -72,11 +78,20 @@ cd scripts && pnpm install
 lsof -ti:8787 | xargs kill
 ```
 
+**"no such table: rooms" or database errors**
+```bash
+# Clear databases (use carefully)
+pnpm wrangler d1 execute president-db --local --config wrangler.api.toml --command="DROP TABLE IF EXISTS match_results; DROP TABLE IF EXISTS matches; DROP TABLE IF EXISTS rooms; DROP TABLE IF EXISTS sessions; DROP TABLE IF EXISTS users; DROP VIEW IF EXISTS leaderboard;"
+
+# Run database migration to create tables
+pnpm run db:migrate:local
+```
+
 **Environment variables**
 Create `frontend/.env.local`:
 ```env
 VITE_API_URL=http://localhost:8787
-VITE_REALTIME_URL=ws://localhost:8787
+VITE_REALTIME_URL=http://localhost:8788
 ```
 
 ## 📚 Next Steps

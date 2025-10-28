@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT UNIQUE NOT NULL,
     email TEXT,
+    password_hash TEXT,
     created_at INTEGER NOT NULL,
     elo_rating INTEGER DEFAULT 1000,
     games_played INTEGER DEFAULT 0,
@@ -30,8 +31,8 @@ CREATE TABLE IF NOT EXISTS rooms (
     current_players INTEGER DEFAULT 0,
     status TEXT NOT NULL, -- 'waiting', 'playing', 'finished'
     created_at INTEGER NOT NULL,
-    finished_at INTEGER,
-    FOREIGN KEY (host_id) REFERENCES users(id)
+    finished_at INTEGER
+    -- Note: No foreign key constraint to allow guest users
 );
 
 -- Matches table (completed games)
