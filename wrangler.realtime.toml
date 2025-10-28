@@ -1,0 +1,27 @@
+name = "president-realtime"
+main = "src/realtime/index.ts"
+compatibility_date = "2024-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+# Durable Object binding
+[durable_objects]
+bindings = [
+  { name = "ROOM_ACTOR", class_name = "RoomActor", script_name = "president-realtime" }
+]
+
+
+# D1 Database binding
+[[d1_databases]]
+binding = "DB"
+database_name = "president-db"
+database_id = "your-database-id"
+
+# KV Namespace bindings
+[[kv_namespaces]]
+binding = "SESSIONS"
+id = "your-kv-id"
+preview_id = "your-kv-id"
+
+# Environment variables
+[vars]
+ENV = "production"

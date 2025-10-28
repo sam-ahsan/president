@@ -1,177 +1,304 @@
-# President Card Game
+# President: Multiplayer Card Game
 
-A real-time multiplayer browser card game inspired by Balatro's clean design and smooth animations.
+A real-time multiplayer card game where players compete to become President, built with Cloudflare Workers, Durable Objects, and React.
 
-## 🚀 Quick Start
+![GitHub](https://img.shields.io/github/license/your-repo/president)
+![Cloudflare](https://img.shields.io/badge/Cloudflare-Workers-orange)
 
-Want to get running immediately? See [GETTING_STARTED.md](./GETTING_STARTED.md) for complete setup instructions.
+## 🎮 Features
 
-**TL;DR:**
-```bash
-pnpm install
-cd packages/shared && pnpm build && cd ../..
-pnpm dev
-```
-Then open http://localhost:5173
+- **Real-time multiplayer** gameplay for 3-12 players
+- **Guest and authenticated** login support with JWT
+- **Authoritative server** logic prevents cheating
+- **Spectator mode** for observing games
+- **Leaderboard system** with ELO ratings
+- **Beautiful animations** inspired by Balatro
+- **Responsive design** for mobile and desktop
+- **Free hosting** on Cloudflare's infrastructure
 
-**📦 Deployment**: Deployment info included in [GETTING_STARTED.md](./GETTING_STARTED.md)
-
----
-
-## 🎯 Project Goals
-
-- Real-time multiplayer gameplay for 3+ players using server-authoritative logic
-- Guest and user login support (JWT based guest sessions, optional persistent users)
-- Polished, high quality UI/UX with animations, transitions, and responsive game playout
-- Free deployment and operation using Cloudflare's generous free tier
-- Lightweight codebase built with TypeScript, Vite, React, and Cloudflare tooling
-
-## 🏗️ Tech Stack
+## 🏗️ Architecture
 
 ### Backend
-- **Runtime**: Cloudflare Workers - serverless compute layer for APIs and WebSocket connections
-- **Room State**: Cloudflare Durable Objects - each game room runs as a single consistent actor
-- **Real-time Transport**: WebSockets (native workers) - handles all live player updates
-- **Database**: Cloudflare D1 (SQLite at edge) - stores users, sessions, match history, and leaderboards
-- **Cache/Sessions**: Cloudflare KV store - tracks active rooms, short-term sessions, and lobbies
+- **API Worker**: Handles authentication, room creation, and leaderboards
+- **Realtime Worker**: Manages WebSocket connections and message relay
+- **RoomActor Durable Object**: Each game room runs as a single actor managing state
+- **D1 Database**: Stores users, sessions, match history, and leaderboards
+- **KV Store**: Tracks active sessions and lobbies
 
 ### Frontend
-- **Framework**: React + Vite + TypeScript - responsive web UI with modular state and animation control
-- **Styling**: TailwindCSS + Framer Motion - production quality, animated UI and layout transitions
-- **Sound Effects**: Howler.js - lightweight and performant sound system
-- **State Management**: Zustand - simple and effective state management
-- **Validation**: Zod - enforces consistent message schemas between client and server
+- **React + Vite + TypeScript**: Modern, type-safe UI
+- **TailwindCSS + Framer Motion**: Polished, animated interface
+- **Howler.js**: Sound effects for game actions
+- **Zod**: Schema validation for WebSocket messages
 
-### Deployment
-- **Hosting**: Cloudflare Pages - free global static hosting for the frontend
-- **Tooling**: Wrangler + pnpm - unified build and deployment toolchain
+## 🚀 Local Development
+
+### Prerequisites
+
+- Node.js 18+ installed
+- pnpm package manager installed: `npm install -g pnpm`
+
+> 💡 **Want to skip Cloudflare setup?** See [DEV_LOCAL.md](DEV_LOCAL.md) for running locally without a Cloudflare account!
+
+### Setup
+
+1. **Clone and install dependencies:**
+   ```bash
+git clone https://github.com/your-repo/president.git
+cd president
+   pnpm install
+   cd frontend && pnpm install && cd ..
+   ```
+
+2. **Authenticate with Cloudflare:**
+   ```bash
+   npx wrangler login
+   ```
+
+3. **Create D1 database:**
+   ```bash
+   npx wrangler d1 create president-db
+   ```
+   Copy the `database_id` from the output and update `wrangler.toml` file.
+
+4. **Create KV namespaces:**
+   ```bash
+   npx wrangler kv:namespace create "SESSIONS"
+   npx wrangler kv:namespace create "SESSIONS" --preview
+   npx wrangler kv:namespace create "LOBBIES"
+   npx wrangler kv:namespace create "LOBBIES" --preview
+   ```
+   Update the IDs in `wrangler.toml` file under `[[kv_namespaces]]`.
+
+5. **Run database migrations:**
+   ```bash
+   pnpm run db:migrate
+   ```
+
+6. **Start development servers:**
+   
+   In terminal 1 (Frontend):
+   ```bash
+   pnpm run dev:frontend
+   ```
+   
+   In terminal 2 (Workers):
+   ```bash
+   pnpm run dev:workers
+   ```
+
+### Local Development URLs
+
+- Frontend: `http://localhost:5173`
+- Workers API: Your Wrangler dev URL (check console output, typically `localhost:8787`)
+
+### Environment Variables
+
+Create `frontend/.env.local`:
+```env
+VITE_API_URL=http://localhost:8787
+VITE_REALTIME_URL=ws://localhost:8787
+```
+
+## 📦 Deployment
+
+### Option 1: Manual Deployment
+
+1. **Deploy Workers to Cloudflare:**
+   ```bash
+   # Authenticate if not already done
+   npx wrangler login
+   
+   # Deploy both workers
+   npx wrangler deploy
+   ```
+
+2. **Update wrangler.toml with your actual IDs:**
+   - Update `database_id` for D1
+   - Update `id` and `preview_id` for KV namespaces
+
+3. **Deploy Frontend to Cloudflare Pages:**
+   
+   Option A: Using Wrangler CLI
+   ```bash
+   cd frontend
+   pnpm run build
+   npx wrangler pages deploy dist
+   ```
+
+   Option B: Via Cloudflare Dashboard
+   - Go to [Cloudflare Dashboard](https://dash.cloudflare.com)
+   - Select Pages → Create a new Project
+   - Connect GitHub repository
+   - Set build command: `cd frontend && pnpm install && pnpm run build`
+   - Set build output directory: `frontend/dist`
+   - Add environment variables:
+     - `VITE_API_URL`: https://your-worker.workers.dev
+     - `VITE_REALTIME_URL`: wss://your-worker.workers.dev
+
+### Option 2: GitHub Actions (Recommended)
+
+The repository includes a `.github/workflows/deploy.yml` that automatically deploys on push to main.
+
+**Setup Secrets in GitHub:**
+1. Go to your repository → Settings → Secrets and variables → Actions
+2. Add these secrets:
+   - `CLOUDFLARE_API_TOKEN`: Get from [Cloudflare Dashboard](https://dash.cloudflare.com/profile/api-tokens)
+   - `CLOUDFLARE_ACCOUNT_ID`: Found in Cloudflare Dashboard URL
+
+**Deploy:**
+```bash
+git push origin main
+```
+
+The GitHub Action will automatically:
+- Deploy Workers to Cloudflare
+- Build and deploy Frontend to Cloudflare Pages
+
+## 🏃 Quick Local Start (No Cloudflare Account)
+
+Want to start coding immediately without setting up Cloudflare?
+
+```bash
+# Install dependencies
+pnpm install
+
+# Install local server dependencies
+cd scripts && pnpm install && cd ..
+
+# Start local API server (Terminal 1)
+pnpm run dev:local
+
+# Start frontend (Terminal 2)
+pnpm run dev:frontend
+```
+
+That's it! Open http://localhost:5173 and start playing.
+
+**Cleanup:**
+```bash
+pnpm run clean:local  # Removes local database
+```
+
+See [DEV_LOCAL.md](DEV_LOCAL.md) for full details.
+
+### Post-Deployment
+
+1. **Get your deployed URLs:**
+   - Worker URL: Check Cloudflare Workers dashboard
+   - Pages URL: Check Cloudflare Pages dashboard
+
+2. **Update environment variables in Cloudflare Pages:**
+   - Add `VITE_API_URL` and `VITE_REALTIME_URL` pointing to your Worker URL
+
+3. **Update wrangler.toml for production:**
+   - Set correct production bindings
+
+## 🃏 Game Rules
+
+### The Deal
+Starting to the dealer's left, deal one card at a time until all cards have been dealt.
+
+### The Play
+The player to dealer's left starts by leading (face up) any single card or any set of cards of equal rank (e.g., three fives).
+
+Each player in turn must either:
+- **Pass** (not play any cards)
+- **Play** a card or set that beats the previous play
+
+### Beating a Play
+- Any higher single card beats a single card
+- A set can only be beaten by a higher set with the same number of cards
+- Example: If someone plays two sixes, you can beat it with two kings or two sevens, but not with a single king or three sevens
+
+### Passing
+- Passing is always allowed
+- You don't have to beat the previous play even if you can
+- Passing doesn't prevent you from playing later
+
+### Winning
+The play continues until someone makes a play everyone else passes. All cards go face down, and the last player starts the next trick.
+
+The first player who is **out of cards** becomes **President** (highest rank).  
+The last player left with cards is **Scum** (lowest rank).
 
 ## 📁 Project Structure
 
 ```
-├─ apps/
-│  ├─ api/                 # HTTP endpoints (auth, create room, leaderboard)
-│  │  ├─ src/index.ts
-│  │  └─ wrangler.toml
-│  └─ realtime/            # Durable Object worker (rooms, WebSockets)
-│     ├─ src/index.ts
-│     ├─ src/room.ts
-│     ├─ src/gameLogic.ts
-│     └─ wrangler.toml
-│
-├─ web/                    # Frontend (React + Vite)
-│  ├─ src/
-│  │  ├─ components/       # UI components (Card, PlayerSeat, ChatPanel)
-│  │  ├─ pages/            # Lobby, GameRoom, Leaderboard
-│  │  ├─ hooks/            # useWebSocket, useGameState
-│  │  ├─ animations/       # Framer Motion variants for transitions
-│  │  └─ assets/           # Card art, sounds, icons
-│  ├─ vite.config.ts
-│  ├─ tailwind.config.js
-│  └─ package.json
-│
-├─ packages/
-│  ├─ shared/
-│  │  ├─ src/messages.ts   # Typed WS message schemas (Zod)
-│  │  ├─ src/types.ts
-│  │  └─ package.json
-│
-├─ schema.sql              # D1 schema (users, matches, sessions)
-├─ wrangler.toml           # Global config and bindings
-├─ package.json            # Workspace scripts
-└─ README.md
+president/
+├── src/
+│   ├── api/           # API Worker (auth, rooms, leaderboards)
+│   ├── realtime/      # Realtime Worker (WebSocket handling)
+│   ├── shared/        # Shared types and utilities
+│   └── durable/       # Durable Object classes
+├── frontend/
+│   ├── src/
+│   │   ├── components/   # React components
+│   │   ├── pages/        # Page components
+│   │   ├── hooks/        # Custom React hooks
+│   │   ├── store/        # State management
+│   │   └── types/        # TypeScript types
+│   └── public/           # Static assets
+├── migrations/        # D1 database migrations
+└── wrangler.toml      # Cloudflare configuration
 ```
 
-## 🚀 Getting Started
+## 🛠️ Tech Stack
 
-### Prerequisites
+### Backend
+- Cloudflare Workers (serverless compute)
+- Durable Objects (stateful game rooms)
+- D1 Database (SQLite at edge)
+- KV Store (sessions & lobbies)
 
-- Node.js 18+ 
-- pnpm 8+
-- Cloudflare account (free tier)
+### Frontend
+- React 18 (UI framework)
+- Vite (build tool)
+- TypeScript (type safety)
+- TailwindCSS (styling)
+- Framer Motion (animations)
+- Howler.js (sound effects)
+- Zustand (state management)
+- Zod (validation)
 
-### Installation
+## 📝 API Endpoints
 
-1. **Clone and install dependencies:**
-   ```bash
-   git clone <repository-url>
-   cd president-card-game
-   pnpm install
-   ```
+### Authentication
+- `POST /api/auth/guest` - Create guest session
+- `POST /api/auth/login` - User login (optional)
+- `POST /api/auth/register` - User registration
 
-2. **Set up Cloudflare resources:**
-   ```bash
-   # Create D1 database
-   pnpm db:create
-   
-   # Run database migrations
-   pnpm db:migrate
-   
-   # Create KV namespaces (you'll need to do this in Cloudflare dashboard)
-   # Update wrangler.toml files with the actual IDs
-   ```
+### Rooms
+- `GET /api/rooms` - List public rooms
+- `POST /api/rooms` - Create room
+- `GET /api/rooms/:id` - Get room info
 
-3. **Configure environment variables:**
-   - Update `JWT_SECRET` in all `wrangler.toml` files
-   - Update database and KV IDs in configuration files
+### Leaderboard
+- `GET /api/leaderboard` - Get global leaderboard
 
-4. **Start development servers:**
-   ```bash
-   pnpm dev
-   ```
+### WebSocket
+- `wss://your-worker-url/room/:roomId` - Connect to game room
 
-This will start:
-- API worker on port 8787
-- Realtime worker on port 8788  
-- Web frontend on port 5173
+## 🧪 Testing
 
-### Available Scripts
+```bash
+# Run linter
+pnpm run lint
 
-- `pnpm dev` - Start all development servers
-- `pnpm build` - Build all packages
-- `pnpm deploy` - Deploy all workers
-- `pnpm deploy:api` - Deploy only API worker
-- `pnpm deploy:realtime` - Deploy only realtime worker
-- `pnpm deploy:web` - Deploy only web frontend
-- `pnpm type-check` - Run TypeScript type checking
-
-## 🎮 Game Rules
-
-President is a trick-taking card game where players try to get rid of all their cards. The player who runs out of cards first becomes the President, and the last player becomes the Scum.
-
-### Basic Rules
-1. Players are dealt all cards from a standard 52-card deck
-2. Players take turns playing cards of the same rank
-3. Cards must be higher rank than the previous play (or same count)
-4. Players can pass their turn
-5. When a player runs out of cards, they win the round
-6. Roles are assigned based on finish order: President, Vice President, Citizen, Vice Scum, Scum
-
-## 🎨 Design Philosophy
-
-Inspired by Balatro's clean, minimalist design:
-- Smooth card animations and transitions
-- Glowing highlights and card textures
-- Responsive design for mobile and desktop
-- Dark mode support
-- Satisfying visual feedback for all actions
-
-## 📈 Development Roadmap
-
-- [x] **Phase 1**: Core Framework Setup
-- [ ] **Phase 2**: Realtime Networking
-- [ ] **Phase 3**: Game Logic MVP
-- [ ] **Phase 4**: Auth + Lobby
-- [ ] **Phase 5**: UI/UX Foundation
-- [ ] **Phase 6**: Leaderboard + Persistence
-- [ ] **Phase 7**: Production Polish
-- [ ] **Phase 8**: Public Demo Launch
-
-## 🤝 Contributing
-
-This is a personal project, but suggestions and feedback are welcome!
+# Test API locally
+curl http://localhost:8787/api/health
+```
 
 ## 📄 License
 
-MIT License - feel free to use this code for your own projects.
+MIT License - See LICENSE file for details
 
+## 🤝 Contributing
+
+Contributions welcome! Please open an issue or submit a pull request.
+
+## 🙏 Acknowledgments
+
+- Inspired by [Balatro](https://localthunk.com/) for animation and design
+- Card game rules adapted from traditional President/Scum
+- Built on Cloudflare's edge infrastructure

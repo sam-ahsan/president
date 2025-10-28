@@ -1,23 +1,10 @@
-name = "president-card-game"
-compatibility_date = "2024-09-23"
+# This file is a placeholder. Use wrangler.api.toml and wrangler.realtime.toml for separate workers.
+# Or you can configure a single worker with both handlers here.
 
-# D1 Database binding
-[[d1_databases]]
-binding = "DB"
-database_name = "president-db"
-database_id = "your-database-id-here"
+name = "president"
+main = "src/index.ts"
+compatibility_date = "2024-01-15"
+node_compat = true
 
-# KV Namespaces
-[[kv_namespaces]]
-binding = "LOBBY_KV"
-id = "your-lobby-kv-id-here"
-
-[[kv_namespaces]]
-binding = "PRESENCE_KV"
-id = "your-presence-kv-id-here"
-
-# Environment variables
-[vars]
-ENVIRONMENT = "development"
-JWT_SECRET = "your-jwt-secret-here"
-
+# See wrangler.api.toml and wrangler.realtime.toml for actual configuration
+# Run: pnpm run dev:api or pnpm run dev:realtime
